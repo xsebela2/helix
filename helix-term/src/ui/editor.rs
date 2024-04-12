@@ -16,8 +16,8 @@ use helix_core::{
     movement::Direction,
     syntax::{self, HighlightEvent},
     text_annotations::TextAnnotations,
-    unicode::width::UnicodeWidthStr,
-    visual_offset_from_block, Change, Position, Range, Selection, Transaction,
+    unicode::{segmentation::UnicodeSegmentation, width::UnicodeWidthStr},
+    visual_offset_from_block, visual_coords_at_pos, LineEnding, Change, Position, Range, Selection, Transaction,
 };
 use helix_view::{
     document::{Mode, SavePoint, SCRATCH_BUFFER_NAME},
@@ -1174,6 +1174,49 @@ impl EditorView {
                         let line = doc.text().char_to_line(char_idx);
                         commands::dap_toggle_breakpoint_impl(cxt, path, line);
                         return EventResult::Consumed(None);
+                    }
+                }
+
+                if row == 0 {
+                    use helix_view::editor::BufferLine;
+                    let use_bufferline = match config.bufferline {
+                        BufferLine::Always => true,
+                        BufferLine::Multiple if cxt.editor.documents.len() > 1 => true,
+                        _ => false,
+                    };
+
+                    if use_bufferline {
+                        let mut column_counter = 0;
+                        let mut id = None;
+
+                        for doc in cxt.editor.documents() {
+                            let fname = doc
+                                .path()
+                                .map(|path| {
+                                    path.file_name()
+                                        .unwrap_or_default()
+                                        .to_str()
+                                        .unwrap_or_default()
+                                })
+                                .unwrap_or(SCRATCH_BUFFER_NAME);
+
+                            let is_modified = if doc.is_modified() { "[+]" } else { "" };
+                            let fname = format!(" {fname}{is_modified} ");
+
+                            for s in fname.graphemes(true) {
+                                column_counter += s.width();
+                            }
+
+                            if column_counter > column as usize {
+                                id = Some(doc.id());
+                                break;
+                            }
+                        }
+
+                        if let Some(id) = id {
+                            cxt.editor.switch(id, helix_view::editor::Action::Replace);
+                            return EventResult::Consumed(None);
+                        }
                     }
                 }
 
